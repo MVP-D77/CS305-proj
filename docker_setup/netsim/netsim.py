@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 
-import sys
-
-import os
-import time
-import logging
 import argparse
-from util import check_output, check_both, run_bg, strip_comments
-from apache_setup import configure_apache, reset_apache, restart_apache, is_apache_configured
+import logging
+import os
 import socket
+import sys
+import time
+
+from apache_setup import (configure_apache, is_apache_configured, reset_apache,
+                          restart_apache)
+from util import check_both, check_output, run_bg, strip_comments
 
 BUF_SIZE = 8192
 

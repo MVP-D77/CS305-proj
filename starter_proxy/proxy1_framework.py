@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 import threading
 import time
@@ -8,6 +9,7 @@ import xml.dom.minidom
 import requests
 from flask import Flask, Response
 
+time_f = time.time()
 app = Flask(__name__)
 lock = threading.Lock()
 class Proxy():
@@ -21,6 +23,7 @@ class Proxy():
         self.allBits = dict()
         self.low_rate = 0
         self.T_current = dict()
+        self.f = open(self.log_file, 'w')
 
     def storeVideoRate(self):
         port = request_dns().decode()
@@ -40,9 +43,35 @@ class Proxy():
 
 proxy = None
 
+class Exit(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.lock = threading.Lock
+        self.setDaemon(True)  # 设置为守护线程
+
+    def refleshTiem(self):
+        global time_f
+        lock.acquire()
+        time_f = time.time()
+        lock.release()
+
+    def run(self):
+        global time_f
+        while True:
+            now = time.time()
+            print(now - time_f)            
+            time.sleep(1)
+
+            # if now - time_f > 10:
+            #     proxy.f.close()
+            #     os._exit(0)
+
+exit_flag = Exit()
+
 @app.route('/')
 @app.route('/<resource>')
 def GetResources(resource=None):
+    exit_flag.refleshTiem()
     port = request_dns().decode()
     url = 'http://localhost:' + port
     if resource:
@@ -52,22 +81,24 @@ def GetResources(resource=None):
 
 @app.route('/vod/big_buck_bunny.f4m')
 def BecomeNoList():
+    exit_flag.refleshTiem()
     port = request_dns().decode()
     url = 'http://localhost:' + port + '/vod/big_buck_bunny_nolist.f4m'
     return Response(requests.get(url))
 
 @app.route('/vod/<message>')
 def video_request(message):
+    exit_flag.refleshTiem()
     port = request_dns().decode()
     message_m, rate = modify_request(message, port)
     url = 'http://localhost:' + port + '/vod/' + message_m
     ts = time.time()
-
     response = requests.get(url)
     tf = time.time()
     print(url)
     length = response.headers['Content-Length']
-    calculate_throughput(port, ts, tf, length)
+    T_new, EWMA = calculate_throughput(port, ts, tf, length)
+    proxy.f.write('%f %f %f %f %f %d %s\n' % (ts ,tf-ts , T_new, EWMA, rate, int(port) , message_m[len(str(rate)):]))
     return Response(response)
 
 def modify_request(message, port):
@@ -113,11 +144,14 @@ def calculate_throughput(port, ts, tf, length):
     """
     # T_new = int(length)/(tf - ts)/1024 * 10000
     T_new = float(length)*8/1024/(tf-ts)
-    print(proxy.T_current[port], proxy.alpha, T_new , tf-ts)
+    # print(proxy.T_current[port], proxy.alpha, T_new , tf-ts)
 
     lock.acquire()
-    proxy.T_current[port] = proxy.T_current[port] * (1 - proxy.alpha) + proxy.alpha * T_new
+    EWMA =  proxy.T_current[port] * (1 - proxy.alpha) + proxy.alpha * T_new
+    proxy.T_current[port] = EWMA
     lock.release()
+
+    return T_new, EWMA
 
 if __name__ == '__main__':
      # Parse training configuration
@@ -134,4 +168,6 @@ if __name__ == '__main__':
     
     proxy = Proxy(config)
     proxy.storeVideoRate()
+    # exit_flag.start()
     app.run(debug=True, host='127.0.0.1', port=config.listen_port, threaded=True)
+    
