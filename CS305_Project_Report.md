@@ -152,7 +152,6 @@ def isPortFree(port: int, host: str = '127.0.0.1'):
         s.shutdown(socket.SHUT_RDWR)
         return False
     except Exception as e:
-        # print(e.args)
         pass
     return True
 ```
