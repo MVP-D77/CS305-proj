@@ -9,9 +9,33 @@ import xml.dom.minidom
 import requests
 from flask import Flask, Response
 
-time_f = time.time()
 app = Flask(__name__)
 lock = threading.Lock()
+
+class Exit(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.time = time.time()
+        self.lock = threading.Lock()
+        self.setDaemon(True)  # 设置为守护线程
+
+    def refleshTiem(self):
+        self.lock.acquire()
+        self.time = time.time()
+        # print('new time interval is ' , time.time() - self.time)
+        self.lock.release()
+
+    def run(self):
+        while True:
+            time.sleep(2)
+            now = time.time()
+            # print(now - self.time)            
+
+            if now - self.time > 10:
+                proxy.f.close()
+                os._exit(0)
+
+
 class Proxy():
     def __init__(self, parser):
         # parse中得到的
@@ -24,6 +48,7 @@ class Proxy():
         self.low_rate = 0
         self.T_current = dict()
         self.f = open(self.log_file, 'w')
+        self.exit_flag = Exit()
 
     def storeVideoRate(self):
         port = request_dns().decode()
@@ -43,35 +68,10 @@ class Proxy():
 
 proxy = None
 
-class Exit(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
-        self.lock = threading.Lock
-        self.setDaemon(True)  # 设置为守护线程
-
-    def refleshTiem(self):
-        global time_f
-        lock.acquire()
-        time_f = time.time()
-        lock.release()
-
-    def run(self):
-        global time_f
-        while True:
-            now = time.time()
-            print(now - time_f)            
-            time.sleep(1)
-
-            # if now - time_f > 10:
-            #     proxy.f.close()
-            #     os._exit(0)
-
-exit_flag = Exit()
-
 @app.route('/')
 @app.route('/<resource>')
 def GetResources(resource=None):
-    exit_flag.refleshTiem()
+    proxy.exit_flag.refleshTiem()
     port = request_dns().decode()
     url = 'http://localhost:' + port
     if resource:
@@ -81,14 +81,14 @@ def GetResources(resource=None):
 
 @app.route('/vod/big_buck_bunny.f4m')
 def BecomeNoList():
-    exit_flag.refleshTiem()
+    proxy.exit_flag.refleshTiem()
     port = request_dns().decode()
     url = 'http://localhost:' + port + '/vod/big_buck_bunny_nolist.f4m'
     return Response(requests.get(url))
 
 @app.route('/vod/<message>')
 def video_request(message):
-    exit_flag.refleshTiem()
+    proxy.exit_flag.refleshTiem()
     port = request_dns().decode()
     message_m, rate = modify_request(message, port)
     url = 'http://localhost:' + port + '/vod/' + message_m
@@ -159,7 +159,7 @@ if __name__ == '__main__':
 
     #params
     parser.add_argument('--log', type=str, default='../logs/log1.txt',  help='Log file to store information')
-    parser.add_argument('--alpha', type=float, default=0.1,  help='the coefficient in throughput estimate')
+    parser.add_argument('--alpha', type=float, default=0.5,  help='the coefficient in throughput estimate')
     parser.add_argument('--listen_port', type=int, default=6600,  help='the proxy server listen on')
     parser.add_argument('--dns_port', type=int, default=5000,  help='the dns server listen on')
     parser.add_argument('--default_port', type=int, default = None,  help='specifying the port of the web server')
@@ -168,6 +168,7 @@ if __name__ == '__main__':
     
     proxy = Proxy(config)
     proxy.storeVideoRate()
-    # exit_flag.start()
-    app.run(debug=True, host='127.0.0.1', port=config.listen_port, threaded=True)
+    proxy.exit_flag.start()
+    # exit_flag.join()
+    app.run(host='127.0.0.1', port=config.listen_port, threaded=True)
     
